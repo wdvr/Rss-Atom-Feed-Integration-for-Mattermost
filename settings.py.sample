@@ -17,6 +17,10 @@ verify_cert = False
 # Deactivate logging for debug purposes
 silent_mode = True
 
+# If True, reloads the settings on every run
+reload_settings = True
+
+
 # Your feeds come here:
 # RssFeed('Feed name', 'Feed URL', 'Image URL', 'Mattermost username', 'Mattermost channel',
 # show name, show title, show description, show url)
