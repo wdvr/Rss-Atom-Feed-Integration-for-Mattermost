@@ -74,8 +74,8 @@ if __name__ == "__main__":
         print('mattermost_webhook_url must be configured. Please see instructions in README.md')
         sys.exit()
 
-    uniquechannels = set([feed.Channel for feed in preferences['feeds']])
-    for c in uniquechannels:
+    unique_channels = set([feed.Channel for feed in preferences['feeds']])
+    for c in unique_channels:
         post_text(":recycle: Python server restarted :recycle: \n\n",
                   preferences['feeds'][0].User, c, preferences['feeds'][0].Iconurl)
 
@@ -93,18 +93,18 @@ if __name__ == "__main__":
                 except:
                     pass
                 configKey = feed.Url + " " + feed.Channel
-                if not configKey in config.keys():
+                if configKey not in config.keys():
                     config[configKey] = ""
                 if config[configKey] != feed.NewTitle:
                     config[configKey] = feed.NewTitle
                     update = True
                     feed.LastTitle = feed.NewTitle
-                    joinedtext = feed.jointext()
-                    if "(stable" in joinedtext or "(back" in joinedtext:
+                    joined_text = feed.jointext()
+                    if "(stable" in joined_text or "(back" in joined_text:
                         feed.NewTitle = ":white_check_mark: " + feed.NewTitle + ":white_check_mark:"
-                    elif "(unstable" in joinedtext or "(abort" in joinedtext:
+                    elif "(unstable" in joined_text or "(abort" in joined_text:
                         feed.NewTitle = ":warning: " + feed.NewTitle + ":warning:"
-                    elif "(broken" in joinedtext:
+                    elif "(broken" in joined_text:
                         feed.NewTitle = ":no_entry: " + feed.NewTitle + ":no_entry:"
                     if not preferences['silent_mode']:
                         logging.debug('Feed url: ' + feed.Url)
