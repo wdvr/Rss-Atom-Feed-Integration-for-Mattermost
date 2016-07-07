@@ -9,6 +9,8 @@ import sys
 import logging
 import settings
 import ssl
+import os
+
 try:
     import feedparser
     import requests
@@ -17,35 +19,27 @@ except ImportError as exc:
           '"sudo pip install -r requirements.txt"'.format(exc))
     sys.exit(0)
 
-settings = {}
-settings['mattermost_webhook_url'] = settings.mattermost_webhook_url
-settings['delay_between_pulls'] = settings.delay_between_pulls
-settings['verify_cert'] = settings.verify_cert
-settings['silent_mode'] = settings.silent_mode
-settings['feeds'] = settings.feeds
-settings['reload_settings'] = settings.reload_settings
 headers = {'Content-Type': 'application/json'}
 
-if (not settings['verify_cert']) and hasattr(ssl, '_create_unverified_context'):
-    ssl._create_default_https_context = ssl._create_unverified_context
+saveFolder = os.getenv('APPDATA') + "\\FeedFetcher"
+preferences = {}
 
 
 def reload_settings():
     reload(settings)
-    settings['mattermost_webhook_url'] = settings.mattermost_webhook_url
-    settings['delay_between_pulls'] = settings.delay_between_pulls
-    settings['verify_cert'] = settings.verify_cert
-    settings['silent_mode'] = settings.silent_mode
-    settings['feeds'] = settings.feeds
-    settings['reload_settings'] = settings.reload_settings
+    preferences['mattermost_webhook_url'] = settings.mattermost_webhook_url
+    preferences['delay_between_pulls'] = settings.delay_between_pulls
+    preferences['verify_cert'] = settings.verify_cert
+    preferences['silent_mode'] = settings.silent_mode
+    preferences['feeds'] = settings.feeds
+    preferences['reload_settings'] = settings.reload_settings
 
 
 def post_text(text, username, channel, iconurl):
     """
     Mattermost POST method, posts text to the Mattermost incoming webhook URL
     """
-    data = {}
-    data['text'] = text
+    data = {'text': text}
     if len(username) > 0:
         data['username'] = username
     if len(channel) > 0:
@@ -53,30 +47,43 @@ def post_text(text, username, channel, iconurl):
     if len(iconurl) > 0:
         data['icon_url'] = iconurl
 
-    r = requests.post(settings['mattermost_webhook_url'], headers=headers, data=json.dumps(data), verify=settings['verify_cert'])
+    r = requests.post(preferences['mattermost_webhook_url'], headers=headers, data=json.dumps(data),
+                      verify=preferences['verify_cert'])
 
     if r.status_code is not requests.codes.ok:
         logging.debug('Encountered error posting to Mattermost URL %s, status=%d, response_body=%s' %
-                      (settings['mattermost_webhook_url'], r.status_code, r.json()))
+                      (preferences['mattermost_webhook_url'], r.status_code, r.json()))
 
 
 if __name__ == "__main__":
     FORMAT = '%(asctime)-15s - %(message)s'
     logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, format=FORMAT)
-    if len(settings['mattermost_webhook_url']) == 0:
+    reload_settings()
+    if (not preferences['verify_cert']) and hasattr(ssl, '_create_unverified_context'):
+        ssl._create_default_https_context = ssl._create_unverified_context
+
+    if not os.path.exists(saveFolder):
+        os.makedirs(saveFolder)
+    with open(saveFolder + '\\lastFeeds.json', 'r+') as f:
+        try:
+            config = json.load(f)
+        except:
+            config = {}
+
+    if len(preferences['mattermost_webhook_url']) == 0:
         print('mattermost_webhook_url must be configured. Please see instructions in README.md')
         sys.exit()
 
-
-    uniquechannels = set([feed.Channel for feed in settings['feeds']])
+    uniquechannels = set([feed.Channel for feed in preferences['feeds']])
     for c in uniquechannels:
-        post_text(":recycle: Python server restarted :recycle: \n\nIt can be that whatever follows, is not new", settings['feeds'][0].User,c,settings['feeds'][0].Iconurl)
+        post_text(":recycle: Python server restarted :recycle: \n\n",
+                  preferences['feeds'][0].User, c, preferences['feeds'][0].Iconurl)
 
-    started=False
     while 1:
         if reload_settings:
             reload_settings()
-        for feed in settings['feeds']:
+        update = False
+        for feed in preferences['feeds']:
             try:
                 d = feedparser.parse(feed.Url)
                 feed.NewTitle = d['entries'][0]['title']
@@ -85,7 +92,12 @@ if __name__ == "__main__":
                     feed.Description = d['entries'][0]['description']
                 except:
                     pass
-                if feed.LastTitle != feed.NewTitle:
+                configKey = feed.Url + " " + feed.Channel
+                if not configKey in config.keys():
+                    config[configKey] = ""
+                if config[configKey] != feed.NewTitle:
+                    config[configKey] = feed.NewTitle
+                    update = True
                     feed.LastTitle = feed.NewTitle
                     joinedtext = feed.jointext()
                     if "(stable" in joinedtext or "(back" in joinedtext:
@@ -94,22 +106,20 @@ if __name__ == "__main__":
                         feed.NewTitle = ":warning: " + feed.NewTitle + ":warning:"
                     elif "(broken" in joinedtext:
                         feed.NewTitle = ":no_entry: " + feed.NewTitle + ":no_entry:"
-                    if not settings['silent_mode']:
+                    if not preferences['silent_mode']:
                         logging.debug('Feed url: ' + feed.Url)
                         logging.debug('Title: ' + feed.NewTitle)
                         logging.debug('Link: ' + feed.ArticleUrl)
                         logging.debug('Posted text: ' + feed.jointext())
                     post_text(feed.jointext(), feed.User, feed.Channel, feed.Iconurl)
-                    
+
                 else:
-                    if not settings['silent_mode']:
+                    if not preferences['silent_mode']:
                         logging.debug('Nothing new. Waiting for good news...')
             except:
                 logging.critical('Error fetching feed ' + feed.Url)
                 logging.exception(sys.exc_info()[0])
-        if not started:
-            for c in uniquechannels:
-                post_text(":recycle: Python server has finished restarting :recycle: \n\nBack to normal",
-                          settings['feeds'][0].User,c,settings['feeds'][0].Iconurl)
-        started=True
-        time.sleep(settings['delay_between_pulls'])
+        if update:
+            with open(saveFolder + '\\lastFeeds.json', 'w+') as f:
+                json.dump(config, f)
+        time.sleep(preferences['delay_between_pulls'])
